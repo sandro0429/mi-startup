@@ -3,5 +3,5 @@ pandas
 numpy
 plotly
 python-dotenv
-google-generativeai
+google-genai
 pillow
