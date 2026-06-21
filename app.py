@@ -20,7 +20,7 @@ st.markdown("### *¿Tu negocio te está ganando dinero... o estás trabajando gr
 st.divider()
 
 # Tabs principales
-tab1, tab2 = st.tabs(["🧮 Analizar producto", "📋 Reporte del negocio"])
+tab1, tab2, tab3 = st.tabs(["🧮 Analizar producto", "📋 Reporte del negocio", "🧾 Leer boleta"])
 
 with tab1:
     col_izq, col_der = st.columns(2)
@@ -159,3 +159,61 @@ with tab2:
             st.success(f"✅ Tu negocio genera S/{r['ganancia_neta']:.2f} al mes con este producto.")
         else:
             st.error(f"❌ Estás perdiendo S/{abs(r['ganancia_neta']):.2f} al mes. Ajusta tu precio.")
+
+with tab3:
+    st.markdown("#### 🧾 Sube la boleta de tu proveedor")
+    st.markdown("Sube una foto o PDF de tu boleta y la IA extraerá los productos y precios automáticamente.")
+
+    imagen = st.file_uploader("Sube tu boleta (foto o imagen)", type=["jpg", "jpeg", "png"])
+
+    if imagen:
+        st.image(imagen, caption="Boleta cargada", use_column_width=True)
+
+        if st.button("📖 Leer boleta con IA", type="primary", use_container_width=True):
+            with st.spinner("Leyendo boleta con PaddleOCR..."):
+                from paddleocr import PaddleOCR
+                import tempfile
+                import numpy as np
+                from PIL import Image
+
+                ocr = PaddleOCR(lang='es')
+
+                # Guardar imagen temporalmente
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                    tmp.write(imagen.read())
+                    tmp_path = tmp.name
+
+                # Extraer texto con PaddleOCR
+                resultado = ocr.ocr(tmp_path)
+                texto_extraido = ""
+                for linea in resultado:
+                    if linea:
+                        for elemento in linea:
+                            texto_extraido += elemento[1][0] + "\n"
+
+            st.markdown("### 📄 Texto extraído de la boleta")
+            st.text(texto_extraido)
+
+            if texto_extraido:
+                with st.spinner("Analizando productos con IA..."):
+                    prompt_ocr = f"""
+Eres un asistente que ayuda a dueños de bodegas peruanas.
+Del siguiente texto extraído de una boleta de proveedor, identifica:
+1. Nombre del proveedor (si aparece)
+2. Lista de productos con su precio unitario y cantidad
+3. Total de la boleta
+
+Texto de la boleta:
+{texto_extraido}
+
+Responde en formato tabla markdown con columnas: Producto | Cantidad | Precio unitario | Subtotal
+Al final muestra el total. Si no puedes identificar algo, di "No encontrado".
+"""
+                    response_ocr = client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=prompt_ocr
+                    )
+
+                st.markdown("### 🤖 Productos identificados")
+                st.write(response_ocr.text)
+                st.info("💡 Tip: Usa estos costos en la pestaña 'Analizar producto' para calcular tu rentabilidad.")
