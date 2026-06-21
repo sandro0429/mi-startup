@@ -162,7 +162,7 @@ with tab2:
 
 with tab3:
     st.markdown("#### 🧾 Sube la boleta de tu proveedor")
-    st.markdown("Sube una foto o PDF de tu boleta y la IA extraerá los productos y precios automáticamente.")
+    st.markdown("Sube una foto o imagen de tu boleta y Gemini extraerá los productos y precios automáticamente.")
 
     imagen = st.file_uploader("Sube tu boleta (foto o imagen)", type=["jpg", "jpeg", "png"])
 
@@ -170,50 +170,55 @@ with tab3:
         st.image(imagen, caption="Boleta cargada", use_column_width=True)
 
         if st.button("📖 Leer boleta con IA", type="primary", use_container_width=True):
-            with st.spinner("Leyendo boleta con PaddleOCR..."):
-                from paddleocr import PaddleOCR
-                import tempfile
-                import numpy as np
-                from PIL import Image
+            with st.spinner("Analizando boleta con IA..."):
+                import base64
 
-                ocr = PaddleOCR(lang='es')
+                # Leer imagen y convertir a base64
+                imagen_bytes = imagen.read()
+                imagen_base64 = base64.b64encode(imagen_bytes).decode("utf-8")
 
-                # Guardar imagen temporalmente
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-                    tmp.write(imagen.read())
-                    tmp_path = tmp.name
+                # Detectar tipo de imagen
+                tipo = imagen.type  # ej: image/jpeg
 
-                # Extraer texto con PaddleOCR
-                resultado = ocr.ocr(tmp_path)
-                texto_extraido = ""
-                for linea in resultado:
-                    if linea:
-                        for elemento in linea:
-                            texto_extraido += elemento[1][0] + "\n"
-
-            st.markdown("### 📄 Texto extraído de la boleta")
-            st.text(texto_extraido)
-
-            if texto_extraido:
-                with st.spinner("Analizando productos con IA..."):
-                    prompt_ocr = f"""
-Eres un asistente que ayuda a dueños de bodegas peruanas.
-Del siguiente texto extraído de una boleta de proveedor, identifica:
+                # Llamar a Gemini Vision
+                response_ocr = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=[
+                        {
+                            "role": "user",
+                            "parts": [
+                                {
+                                    "inline_data": {
+                                        "mime_type": tipo,
+                                        "data": imagen_base64
+                                    }
+                                },
+                                {
+                                    "text": """Eres un asistente que ayuda a dueños de bodegas peruanas.
+Analiza esta boleta o factura de proveedor y extrae:
 1. Nombre del proveedor (si aparece)
-2. Lista de productos con su precio unitario y cantidad
-3. Total de la boleta
+2. Fecha (si aparece)
+3. Lista completa de productos con cantidad, precio unitario y subtotal
+4. Total de la boleta
 
-Texto de la boleta:
-{texto_extraido}
+Responde en este formato exacto:
+**Proveedor:** [nombre o "No encontrado"]
+**Fecha:** [fecha o "No encontrado"]
 
-Responde en formato tabla markdown con columnas: Producto | Cantidad | Precio unitario | Subtotal
-Al final muestra el total. Si no puedes identificar algo, di "No encontrado".
-"""
-                    response_ocr = client.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents=prompt_ocr
-                    )
+| Producto | Cantidad | Precio unitario | Subtotal |
+|---|---|---|---|
+| [producto] | [cantidad] | S/[precio] | S/[subtotal] |
 
-                st.markdown("### 🤖 Productos identificados")
-                st.write(response_ocr.text)
-                st.info("💡 Tip: Usa estos costos en la pestaña 'Analizar producto' para calcular tu rentabilidad.")
+**Total: S/[total]**
+
+Al final agrega este consejo:
+💡 Tip: Usa estos costos en la pestaña Analizar producto para calcular tu rentabilidad."""
+                                }
+                            ]
+                        }
+                    ]
+                )
+
+            st.markdown("### 🤖 Productos identificados")
+            st.write(response_ocr.text)
+            st.info("💡 Copia el costo unitario de cada producto y úsalo en la pestaña 'Analizar producto'.")
