@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import json
 from datetime import datetime
 from dotenv import load_dotenv
 from google import genai
@@ -372,7 +373,8 @@ with tab2:
 
 with tab3:
     st.markdown("#### 🧾 Sube la boleta de tu proveedor")
-    st.markdown("Sube una foto o imagen de tu boleta y Gemini extraerá los productos y precios automáticamente.")
+    st.markdown("Sube una foto o imagen de tu boleta y la IA va a identificar cada producto, "
+                "para que los guardes como gastos sin tener que tipearlos uno por uno.")
 
     imagen = st.file_uploader("Sube tu boleta (foto o imagen)", type=["jpg", "jpeg", "png"])
 
@@ -387,6 +389,25 @@ with tab3:
                 imagen_base64 = base64.b64encode(imagen_bytes).decode("utf-8")
                 tipo = imagen.type
 
+                prompt_ocr = """Eres un asistente que ayuda a dueños de bodegas peruanas a digitalizar
+boletas y facturas de compra.
+
+Analiza esta boleta o factura de proveedor y responde UNICAMENTE con un JSON valido,
+sin texto antes ni despues, y sin usar bloques de codigo markdown (sin ```). Usa exactamente
+esta estructura:
+
+{
+  "proveedor": "nombre del proveedor, o null si no aparece",
+  "fecha": "fecha de la boleta en formato texto, o null si no aparece",
+  "productos": [
+    {"nombre": "nombre del producto", "cantidad": numero, "precio_unitario": numero, "subtotal": numero}
+  ],
+  "total": numero
+}
+
+Los numeros van sin el simbolo S/, solo el valor. Si no puedes leer un campo, usa null.
+Si no hay productos identificables, devuelve "productos": []."""
+
                 try:
                     response_ocr = client.models.generate_content(
                         model="gemini-2.5-flash",
@@ -394,62 +415,105 @@ with tab3:
                             {
                                 "role": "user",
                                 "parts": [
-                                    {
-                                        "inline_data": {
-                                            "mime_type": tipo,
-                                            "data": imagen_base64
-                                        }
-                                    },
-                                    {
-                                        "text": """Eres un asistente que ayuda a dueños de bodegas peruanas.
-Analiza esta boleta o factura de proveedor y extrae:
-1. Nombre del proveedor (si aparece)
-2. Fecha (si aparece)
-3. Lista completa de productos con cantidad, precio unitario y subtotal
-4. Total de la boleta
-
-Responde en este formato exacto:
-**Proveedor:** [nombre o "No encontrado"]
-**Fecha:** [fecha o "No encontrado"]
-
-| Producto | Cantidad | Precio unitario | Subtotal |
-|---|---|---|---|
-| [producto] | [cantidad] | S/[precio] | S/[subtotal] |
-
-**Total: S/[total]**
-
-Al final agrega este consejo:
-💡 Tip: Usa estos costos en la pestaña Analizar producto para calcular tu rentabilidad."""
-                                    }
+                                    {"inline_data": {"mime_type": tipo, "data": imagen_base64}},
+                                    {"text": prompt_ocr}
                                 ]
                             }
                         ]
                     )
-                    st.session_state["ocr_texto"] = response_ocr.text
+
+                    texto_crudo = response_ocr.text.strip()
+                    # por si la IA igual lo envuelve en ```json ... ``` a pesar de la instrucción
+                    if texto_crudo.startswith("```"):
+                        texto_crudo = texto_crudo.strip("`")
+                        if texto_crudo.lower().startswith("json"):
+                            texto_crudo = texto_crudo[4:]
+                        texto_crudo = texto_crudo.strip()
+
+                    try:
+                        st.session_state["boleta_datos"] = json.loads(texto_crudo)
+                        st.session_state["boleta_texto_crudo"] = None
+                    except json.JSONDecodeError:
+                        st.session_state["boleta_datos"] = None
+                        st.session_state["boleta_texto_crudo"] = response_ocr.text
+
                 except Exception:
-                    st.session_state["ocr_texto"] = None
+                    st.session_state["boleta_datos"] = None
+                    st.session_state["boleta_texto_crudo"] = None
                     st.error("No se pudo leer la boleta en este momento. Intenta de nuevo.")
 
-        if st.session_state.get("ocr_texto"):
-            st.markdown("### 🤖 Productos identificados")
-            st.write(st.session_state["ocr_texto"])
-            st.info("💡 Copia el costo unitario de cada producto y úsalo en la pestaña 'Analizar producto'.")
+        # --- Caso 1: la IA devolvió datos estructurados correctamente ---
+        if st.session_state.get("boleta_datos"):
+            datos = st.session_state["boleta_datos"]
+            productos_boleta = datos.get("productos") or []
 
-            st.divider()
-            st.markdown("#### 💾 Guardar este gasto en tu negocio")
-            st.caption("Por ahora se guarda el total de la boleta como un solo gasto. Más adelante esto se va a guardar línea por línea, automáticamente.")
+            st.markdown("### 🤖 Productos identificados")
+            col_p, col_f = st.columns(2)
+            col_p.write(f"**Proveedor:** {datos.get('proveedor') or 'No encontrado'}")
+            col_f.write(f"**Fecha en la boleta:** {datos.get('fecha') or 'No encontrada'}")
+
+            if not productos_boleta:
+                st.warning("No se identificaron productos en la boleta. Puedes intentar con otra foto más nítida.")
+            else:
+                st.caption("Revisa y corrige si algo salió mal antes de guardar — puedes editar cualquier celda.")
+                productos_editados = st.data_editor(
+                    productos_boleta,
+                    use_container_width=True,
+                    num_rows="dynamic",
+                    key="editor_boleta",
+                    column_config={
+                        "nombre": "Producto",
+                        "cantidad": "Cantidad",
+                        "precio_unitario": "Precio unitario",
+                        "subtotal": "Subtotal",
+                    }
+                )
+
+                total_calculado = sum((p.get("subtotal") or 0) for p in productos_editados)
+                st.metric("Total según las líneas", f"S/{total_calculado:.2f}")
+                if datos.get("total") is not None:
+                    st.caption(f"La boleta dice un total de S/{datos['total']:.2f}. "
+                               f"Si no coincide, revisa las líneas arriba.")
+
+                if st.button("💾 Guardar estos gastos en mi negocio", type="primary", use_container_width=True):
+                    proveedor_final = datos.get("proveedor") or "Sin proveedor"
+                    guardados = 0
+                    for p in productos_editados:
+                        nombre_p = p.get("nombre")
+                        subtotal_p = p.get("subtotal")
+                        if nombre_p and subtotal_p:
+                            db.guardar_gasto(
+                                negocio_id=negocio_id,
+                                proveedor=proveedor_final,
+                                descripcion=str(nombre_p),
+                                monto=float(subtotal_p),
+                                fuente="boleta"
+                            )
+                            guardados += 1
+                    if guardados:
+                        st.success(f"Se guardaron {guardados} gastos en tu historial. "
+                                   f"Los puedes ver en 'Reporte del negocio'.")
+                    else:
+                        st.warning("No había líneas válidas para guardar (revisa que tengan nombre y subtotal).")
+
+        # --- Caso 2: la IA no devolvió JSON válido -> fallback manual ---
+        elif st.session_state.get("boleta_texto_crudo"):
+            st.markdown("### 🤖 No se pudo estructurar automáticamente")
+            st.write(st.session_state["boleta_texto_crudo"])
+            st.info("La IA respondió, pero no en el formato esperado. Puedes registrar el gasto a mano abajo.")
+
             col_a, col_b = st.columns(2)
             with col_a:
                 proveedor_guardar = st.text_input("Proveedor (opcional)", key="proveedor_guardar")
             with col_b:
                 monto_guardar = st.number_input("Monto total de la boleta (S/)",
                                                 min_value=0.0, step=0.10, key="monto_guardar")
-            if st.button("Guardar gasto", type="primary"):
+            if st.button("Guardar gasto manual", type="primary"):
                 if monto_guardar > 0:
                     db.guardar_gasto(
                         negocio_id=negocio_id,
                         proveedor=proveedor_guardar,
-                        descripcion="Boleta leída con IA",
+                        descripcion="Boleta leída con IA (manual)",
                         monto=monto_guardar,
                         fuente="boleta"
                     )
