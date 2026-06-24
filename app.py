@@ -3,22 +3,96 @@ import os
 import json
 from datetime import datetime
 from dotenv import load_dotenv
-from google import genai
 from src import db
+from src import ai
 
 # Cargar variables de entorno
 load_dotenv()
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 # Inicializar base de datos (crea las tablas si no existen)
 db.init_db()
 
 # Configuración de página
 st.set_page_config(
-    page_title="MiMargen",
+    page_title="Flunova",
     page_icon="📊",
     layout="wide"
 )
+
+# ============================================================
+# ESTILO VISUAL — paleta navy/teal tomada del diagrama de arquitectura
+# ============================================================
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
+/* Métricas como tarjetas */
+div[data-testid="stMetric"] {
+    background-color: #EAF6F3;
+    border: 1px solid #DCEAE7;
+    border-left: 4px solid #0F9B8E;
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+}
+div[data-testid="stMetricValue"] {
+    color: #0B1F3F;
+    font-weight: 700;
+}
+div[data-testid="stMetricLabel"] {
+    color: #5B6B7C;
+    font-weight: 500;
+}
+
+/* Pestañas */
+div[data-testid="stTabs"] button {
+    font-weight: 600;
+    color: #5B6B7C;
+}
+div[data-testid="stTabs"] button[aria-selected="true"] {
+    color: #0B1F3F;
+    border-bottom-color: #0F9B8E !important;
+}
+
+/* Botones primarios */
+button[kind="primary"] {
+    border-radius: 8px;
+    font-weight: 600;
+}
+
+/* Encabezados */
+h1, h2, h3 {
+    color: #0B1F3F;
+    font-weight: 800;
+}
+
+/* Expanders (costos fijos) */
+div[data-testid="stExpander"] {
+    border: 1px solid #DCEAE7;
+    border-radius: 10px;
+}
+
+/* Tarjeta de identificación del negocio */
+.flunova-badge {
+    background-color: #EAF6F3;
+    border: 1px solid #DCEAE7;
+    border-radius: 10px;
+    padding: 0.6rem 0.9rem;
+    text-align: right;
+}
+.flunova-badge .nombre { color: #0B1F3F; font-weight: 700; font-size: 0.95rem; }
+.flunova-badge .codigo { color: #5B6B7C; font-size: 0.8rem; }
+
+/* Dataframes con bordes redondeados */
+div[data-testid="stDataFrame"] {
+    border-radius: 10px;
+    overflow: hidden;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ============================================================
 # IDENTIFICACIÓN DEL NEGOCIO (aislamiento de datos por negocio)
@@ -36,7 +110,14 @@ if "negocio_id" not in st.session_state:
             st.session_state["negocio_nombre"] = nombre_existente
 
 if "negocio_id" not in st.session_state:
-    st.title("📊 MiMargen")
+    st.markdown("""
+    <div style="border-bottom: 3px solid #0F9B8E; padding-bottom: 1rem; margin-bottom: 1.5rem;">
+        <h1 style="color:#0B1F3F; font-weight:800; margin:0;">📊 Flunova</h1>
+        <p style="color:#0F9B8E; font-weight:600; font-size:1.05rem; margin:0.3rem 0 0 0;">
+            Copiloto financiero para pequeños negocios
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     st.markdown("### Antes de empezar, identifiquemos tu negocio")
     st.info("Esto evita que tu información se mezcle con la de otros negocios que usen este mismo link.")
 
@@ -78,17 +159,27 @@ negocio_nombre = st.session_state["negocio_nombre"]
 # Header
 col_titulo, col_negocio = st.columns([4, 1])
 with col_titulo:
-    st.title("📊 MiMargen")
-    st.markdown("### *¿Tu negocio te está ganando dinero... o estás trabajando gratis?*")
+    st.markdown("""
+    <div>
+        <h1 style="color:#0B1F3F; font-weight:800; margin:0;">📊 Flunova</h1>
+        <p style="color:#0F9B8E; font-weight:600; font-size:1.05rem; margin:0.3rem 0 0 0;">
+            ¿Tu negocio te está ganando dinero... o estás trabajando gratis?
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 with col_negocio:
-    st.markdown(f"🏪 **{negocio_nombre}**")
-    st.caption(f"Código: {negocio_id}")
+    st.markdown(f"""
+    <div class="flunova-badge">
+        <div class="nombre">🏪 {negocio_nombre}</div>
+        <div class="codigo">Código: {negocio_id}</div>
+    </div>
+    """, unsafe_allow_html=True)
     if st.button("Cambiar de negocio"):
         del st.session_state["negocio_id"]
         del st.session_state["negocio_nombre"]
         st.query_params.clear()
         st.rerun()
-st.divider()
+st.markdown('<hr style="border: none; border-top: 3px solid #0F9B8E; margin: 1rem 0 1.5rem 0;">', unsafe_allow_html=True)
 
 # Tabs principales
 tab1, tab_venta, tab2, tab3 = st.tabs([
@@ -170,31 +261,7 @@ with tab1:
 
             # Recomendación IA, enfocada solo en este producto
             with st.spinner("Generando recomendación con IA..."):
-                prompt = f"""
-Eres un asesor de precios para bodegas y tiendas pequeñas en Perú.
-Habla en español peruano simple, directo y amigable. Usa soles (S/). Máximo 120 palabras.
-
-Producto: {nombre}
-Costo de compra: S/{costo:.2f}
-Precio de venta: S/{precio_venta:.2f}
-Markup sobre el costo: {markup_real:.1f}%
-Margen sobre el precio de venta: {margen_pct:.1f}%
-
-Da una recomendación corta y puntual sobre este precio en particular:
-1. Si es un margen saludable para este tipo de producto.
-2. Si conviene ajustarlo (redondear, subir o bajar un poco) y por qué.
-
-No menciones ganancias mensuales del negocio ni sueldo del dueño — eso se calcula
-en otra parte de la app, con datos reales de ventas del mes.
-"""
-                try:
-                    response = client.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents=prompt
-                    )
-                    texto_reporte = response.text
-                except Exception:
-                    texto_reporte = None
+                texto_reporte = ai.recomendar_precio(nombre, costo, precio_venta, markup_real, margen_pct)
 
             st.markdown("### 🤖 Recomendación de la IA")
             if texto_reporte:
@@ -389,58 +456,15 @@ with tab3:
                 imagen_base64 = base64.b64encode(imagen_bytes).decode("utf-8")
                 tipo = imagen.type
 
-                prompt_ocr = """Eres un asistente que ayuda a dueños de bodegas peruanas a digitalizar
-boletas y facturas de compra.
+                datos_json, texto_crudo_fallback, hubo_error = ai.leer_boleta(imagen_base64, tipo)
 
-Analiza esta boleta o factura de proveedor y responde UNICAMENTE con un JSON valido,
-sin texto antes ni despues, y sin usar bloques de codigo markdown (sin ```). Usa exactamente
-esta estructura:
-
-{
-  "proveedor": "nombre del proveedor, o null si no aparece",
-  "fecha": "fecha de la boleta en formato texto, o null si no aparece",
-  "productos": [
-    {"nombre": "nombre del producto", "cantidad": numero, "precio_unitario": numero, "subtotal": numero}
-  ],
-  "total": numero
-}
-
-Los numeros van sin el simbolo S/, solo el valor. Si no puedes leer un campo, usa null.
-Si no hay productos identificables, devuelve "productos": []."""
-
-                try:
-                    response_ocr = client.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents=[
-                            {
-                                "role": "user",
-                                "parts": [
-                                    {"inline_data": {"mime_type": tipo, "data": imagen_base64}},
-                                    {"text": prompt_ocr}
-                                ]
-                            }
-                        ]
-                    )
-
-                    texto_crudo = response_ocr.text.strip()
-                    # por si la IA igual lo envuelve en ```json ... ``` a pesar de la instrucción
-                    if texto_crudo.startswith("```"):
-                        texto_crudo = texto_crudo.strip("`")
-                        if texto_crudo.lower().startswith("json"):
-                            texto_crudo = texto_crudo[4:]
-                        texto_crudo = texto_crudo.strip()
-
-                    try:
-                        st.session_state["boleta_datos"] = json.loads(texto_crudo)
-                        st.session_state["boleta_texto_crudo"] = None
-                    except json.JSONDecodeError:
-                        st.session_state["boleta_datos"] = None
-                        st.session_state["boleta_texto_crudo"] = response_ocr.text
-
-                except Exception:
+                if hubo_error:
                     st.session_state["boleta_datos"] = None
                     st.session_state["boleta_texto_crudo"] = None
                     st.error("No se pudo leer la boleta en este momento. Intenta de nuevo.")
+                else:
+                    st.session_state["boleta_datos"] = datos_json
+                    st.session_state["boleta_texto_crudo"] = texto_crudo_fallback
 
         # --- Caso 1: la IA devolvió datos estructurados correctamente ---
         if st.session_state.get("boleta_datos"):
