@@ -20,6 +20,81 @@ st.set_page_config(
 )
 
 # ============================================================
+# ESTILO VISUAL — paleta navy/teal tomada del diagrama de arquitectura
+# ============================================================
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
+/* Métricas como tarjetas */
+div[data-testid="stMetric"] {
+    background-color: #EAF6F3;
+    border: 1px solid #DCEAE7;
+    border-left: 4px solid #0F9B8E;
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+}
+div[data-testid="stMetricValue"] {
+    color: #0B1F3F;
+    font-weight: 700;
+}
+div[data-testid="stMetricLabel"] {
+    color: #5B6B7C;
+    font-weight: 500;
+}
+
+/* Pestañas */
+div[data-testid="stTabs"] button {
+    font-weight: 600;
+    color: #5B6B7C;
+}
+div[data-testid="stTabs"] button[aria-selected="true"] {
+    color: #0B1F3F;
+    border-bottom-color: #0F9B8E !important;
+}
+
+/* Botones primarios */
+button[kind="primary"] {
+    border-radius: 8px;
+    font-weight: 600;
+}
+
+/* Encabezados */
+h1, h2, h3 {
+    color: #0B1F3F;
+    font-weight: 800;
+}
+
+/* Expanders (costos fijos) */
+div[data-testid="stExpander"] {
+    border: 1px solid #DCEAE7;
+    border-radius: 10px;
+}
+
+/* Tarjeta de identificación del negocio */
+.flunova-badge {
+    background-color: #EAF6F3;
+    border: 1px solid #DCEAE7;
+    border-radius: 10px;
+    padding: 0.6rem 0.9rem;
+    text-align: right;
+}
+.flunova-badge .nombre { color: #0B1F3F; font-weight: 700; font-size: 0.95rem; }
+.flunova-badge .codigo { color: #5B6B7C; font-size: 0.8rem; }
+
+/* Dataframes con bordes redondeados */
+div[data-testid="stDataFrame"] {
+    border-radius: 10px;
+    overflow: hidden;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================
 # IDENTIFICACIÓN DEL NEGOCIO (aislamiento de datos por negocio)
 # ============================================================
 # Como el link es público y compartido, usamos un código simple
@@ -35,7 +110,14 @@ if "negocio_id" not in st.session_state:
             st.session_state["negocio_nombre"] = nombre_existente
 
 if "negocio_id" not in st.session_state:
-    st.title("📊 Flunova")
+    st.markdown("""
+    <div style="border-bottom: 3px solid #0F9B8E; padding-bottom: 1rem; margin-bottom: 1.5rem;">
+        <h1 style="color:#0B1F3F; font-weight:800; margin:0;">📊 Flunova</h1>
+        <p style="color:#0F9B8E; font-weight:600; font-size:1.05rem; margin:0.3rem 0 0 0;">
+            Copiloto financiero para pequeños negocios
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     st.markdown("### Antes de empezar, identifiquemos tu negocio")
     st.info("Esto evita que tu información se mezcle con la de otros negocios que usen este mismo link.")
 
@@ -77,17 +159,27 @@ negocio_nombre = st.session_state["negocio_nombre"]
 # Header
 col_titulo, col_negocio = st.columns([4, 1])
 with col_titulo:
-    st.title("📊 Flunova")
-    st.markdown("### *¿Tu negocio te está ganando dinero... o estás trabajando gratis?*")
+    st.markdown("""
+    <div>
+        <h1 style="color:#0B1F3F; font-weight:800; margin:0;">📊 Flunova</h1>
+        <p style="color:#0F9B8E; font-weight:600; font-size:1.05rem; margin:0.3rem 0 0 0;">
+            ¿Tu negocio te está ganando dinero... o estás trabajando gratis?
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 with col_negocio:
-    st.markdown(f"🏪 **{negocio_nombre}**")
-    st.caption(f"Código: {negocio_id}")
+    st.markdown(f"""
+    <div class="flunova-badge">
+        <div class="nombre">🏪 {negocio_nombre}</div>
+        <div class="codigo">Código: {negocio_id}</div>
+    </div>
+    """, unsafe_allow_html=True)
     if st.button("Cambiar de negocio"):
         del st.session_state["negocio_id"]
         del st.session_state["negocio_nombre"]
         st.query_params.clear()
         st.rerun()
-st.divider()
+st.markdown('<hr style="border: none; border-top: 3px solid #0F9B8E; margin: 1rem 0 1.5rem 0;">', unsafe_allow_html=True)
 
 # Tabs principales
 tab1, tab_venta, tab2, tab3 = st.tabs([
